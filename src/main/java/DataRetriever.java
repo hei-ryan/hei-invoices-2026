@@ -54,4 +54,56 @@ public class DataRetriever {
             throw new RuntimeException(e);
         }
     }
+
+    InvoiceStatusTotal computeStatusTotal() {
+        try (Connection connection = dbConnection.getConnection();
+             PreparedStatement preparedStatement = connection.prepareStatement(
+                     """
+                                   select sum((case when i.status = 'PAID' then il.quantity * il.unit_price else 0 end))      as paid_amount,
+                                          sum((case when i.status = 'CONFIRMED' then il.quantity * il.unit_price else 0 end)) as confirmed_amount,
+                                          sum((case when i.status = 'DRAFT' then il.quantity * il.unit_price else 0 end))     as draft_amount
+                                   from invoice i
+                                            join public.invoice_line il on i.id = il.invoice_id;
+                             """);
+             ResultSet resultSet = preparedStatement.executeQuery()) {
+            if (resultSet.next()) {
+                InvoiceStatusTotal invoiceStatusTotal = new InvoiceStatusTotal();
+                invoiceStatusTotal.setInvoicePaid(resultSet.getDouble("paid_amount"));
+                invoiceStatusTotal.setInvoiceConfirmed(resultSet.getDouble("confirmed_amount"));
+                invoiceStatusTotal.setInvoiceDraft(resultSet.getDouble("draft_amount"));
+                return invoiceStatusTotal;
+            }
+            throw new RuntimeException("Unable to compute invoice status total");
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public Double computeWeightTurnOver() {
+        try (Connection connection = dbConnection.getConnection();
+             PreparedStatement preparedStatement = connection.prepareStatement(
+                     """
+                                select sum(case
+                                               when i.status = 'PAID' then quantity * unit_price * 1.0
+                                               else
+                                                   case
+                                                       when i.status = 'CONFIRMED' then quantity * unit_price * 0.5
+                                                       else
+                                                           case
+                                                               when i.status = 'DRAFT' then quantity * unit_price * 0
+                                                               else 0 end
+                                                       end
+                                    end) as revenue_percent
+                                from invoice_line il
+                                         join invoice i on i.id = il.invoice_id
+                             """);
+             ResultSet resultSet = preparedStatement.executeQuery()) {
+            if (resultSet.next()) {
+                return resultSet.getDouble("revenue_percent");
+            }
+            throw new RuntimeException("Unable to compute weight turnover");
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }
